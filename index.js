@@ -4,6 +4,8 @@
  * @requires cors
  * @requires ./routes/auth
  * @requires ./routes/admin
+ * @requires ./routes/staff
+ * @requires ./routes/sponsorship
  * @requires ./config/database
  */
 
@@ -11,6 +13,8 @@ const express = require("express");
 const cors = require("cors");
 const authRoutes = require("./routes/auth");
 const adminRoutes = require("./routes/admin");
+const staffRoutes = require("./routes/staff");
+const sponsorshipRoutes = require("./routes/sponsorship");
 const { connectToDB } = require("./config/database");
 
 const app = express();
@@ -35,6 +39,12 @@ async function startServer() {
 
     // Use admin routes
     app.use("/api/admin", adminRoutes);
+
+    // Use staff routes
+    app.use("/api/staff", staffRoutes);
+
+    // Use sponsorship routes
+    app.use("/api/sponsorships", sponsorshipRoutes);
 
     // Start server
     app.listen(port, () => {
