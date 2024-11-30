@@ -1,5 +1,5 @@
 /**
- * @fileoverview Artist management routes
+ * @fileoverview Artist management routes with Staff integration
  * @requires express
  * @requires ../config/database
  */
@@ -9,9 +9,9 @@ const router = express.Router();
 const { connectToDB } = require("../config/database");
 
 /**
- * Get all artists
+ * Get all artists with manager details
  * @route GET /api/artists
- * @returns {Array<Object>} List of artists
+ * @returns {Array<Object>} List of artists with manager info
  * @throws {Error} 500 - If retrieval fails
  */
 router.get("/", async (req, res) => {
@@ -21,15 +21,18 @@ router.get("/", async (req, res) => {
 
     const result = await connection.execute(
       `SELECT 
-                ARTIST_ID, 
-                NAME, 
-                GENRE, 
-                CONTACT_INFO, 
-                AVAILABILITY, 
-                SOCIAL_MEDIA_LINK, 
-                MANAGER_CONTACT 
-             FROM ARTISTS 
-             ORDER BY NAME`
+                A.ARTIST_ID, 
+                A.NAME, 
+                A.GENRE, 
+                A.CONTACT_INFO, 
+                A.AVAILABILITY, 
+                A.SOCIAL_MEDIA_LINK, 
+                A.MANAGER_ID,
+                S.NAME AS MANAGER_NAME,
+                S.ROLE AS MANAGER_ROLE
+             FROM ARTISTS A
+             LEFT JOIN STAFF S ON A.MANAGER_ID = S.STAFF_ID 
+             ORDER BY A.NAME`
     );
 
     const artists = result.rows.map((row) => ({
@@ -39,7 +42,11 @@ router.get("/", async (req, res) => {
       contactInfo: row[3],
       availability: row[4],
       socialMediaLink: row[5],
-      managerContact: row[6],
+      manager: {
+        managerId: row[6],
+        name: row[7],
+        role: row[8],
+      },
     }));
 
     res.json(artists);
@@ -66,9 +73,10 @@ router.get("/", async (req, res) => {
  * @param {string} req.body.contactInfo - Artist contact information
  * @param {string} req.body.availability - Artist availability
  * @param {string} req.body.socialMediaLink - Artist social media link
- * @param {string} req.body.managerContact - Manager contact information
+ * @param {number} req.body.managerId - Staff ID of the manager
  * @returns {Object} Created artist details
  * @throws {Error} 400 - If required fields are missing
+ * @throws {Error} 404 - If manager not found
  * @throws {Error} 500 - If creation fails
  */
 router.post("/", async (req, res) => {
@@ -80,7 +88,7 @@ router.post("/", async (req, res) => {
       contactInfo,
       availability,
       socialMediaLink,
-      managerContact,
+      managerId,
     } = req.body;
 
     // Validate required fields
@@ -91,6 +99,17 @@ router.post("/", async (req, res) => {
     }
 
     connection = await connectToDB();
+
+    // Verify manager exists if provided
+    if (managerId) {
+      const managerCheck = await connection.execute(
+        "SELECT 1 FROM STAFF WHERE STAFF_ID = :id",
+        [managerId]
+      );
+      if (managerCheck.rows.length === 0) {
+        return res.status(404).json({ message: "Specified manager not found" });
+      }
+    }
 
     // Get new artist ID
     const seqResult = await connection.execute(
@@ -107,7 +126,7 @@ router.post("/", async (req, res) => {
                 CONTACT_INFO, 
                 AVAILABILITY, 
                 SOCIAL_MEDIA_LINK, 
-                MANAGER_CONTACT
+                MANAGER_ID
             ) VALUES (
                 :id, 
                 :name, 
@@ -115,7 +134,7 @@ router.post("/", async (req, res) => {
                 :contactInfo, 
                 :availability, 
                 :socialMediaLink, 
-                :managerContact
+                :managerId
             )`,
       {
         id: artistId,
@@ -124,20 +143,46 @@ router.post("/", async (req, res) => {
         contactInfo: contactInfo,
         availability: availability || null,
         socialMediaLink: socialMediaLink || null,
-        managerContact: managerContact || null,
+        managerId: managerId || null,
       },
       { autoCommit: true }
     );
 
+    // Fetch the created artist with manager details
+    const result = await connection.execute(
+      `SELECT 
+                A.ARTIST_ID, 
+                A.NAME, 
+                A.GENRE, 
+                A.CONTACT_INFO, 
+                A.AVAILABILITY, 
+                A.SOCIAL_MEDIA_LINK, 
+                A.MANAGER_ID,
+                S.NAME AS MANAGER_NAME,
+                S.ROLE AS MANAGER_ROLE
+             FROM ARTISTS A
+             LEFT JOIN STAFF S ON A.MANAGER_ID = S.STAFF_ID 
+             WHERE A.ARTIST_ID = :id`,
+      [artistId]
+    );
+
+    const artist = {
+      artistId: result.rows[0][0],
+      name: result.rows[0][1],
+      genre: result.rows[0][2],
+      contactInfo: result.rows[0][3],
+      availability: result.rows[0][4],
+      socialMediaLink: result.rows[0][5],
+      manager: {
+        managerId: result.rows[0][6],
+        name: result.rows[0][7],
+        role: result.rows[0][8],
+      },
+    };
+
     res.status(201).json({
       success: true,
-      artistId: artistId,
-      name: name,
-      genre: genre,
-      contactInfo: contactInfo,
-      availability: availability,
-      socialMediaLink: socialMediaLink,
-      managerContact: managerContact,
+      ...artist,
     });
   } catch (error) {
     console.error("Artist creation error:", error);
