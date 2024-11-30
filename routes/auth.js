@@ -1,26 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const oracledb = require("oracledb");
-
-/**
- * Establishes a connection to the Oracle database
- * @async
- * @returns {Promise<Connection>} Oracle database connection object
- * @throws {Error} If connection fails
- */
-async function connectToDB() {
-  try {
-    const connection = await oracledb.getConnection({
-      user: "system",
-      password: "admin123",
-      connectString: "localhost:1521/xe",
-    });
-    return connection;
-  } catch (err) {
-    console.error("Error:", err);
-    throw err;
-  }
-}
+const { connectToDB } = require("../config/database");
 
 /**
  * Register a new attendee

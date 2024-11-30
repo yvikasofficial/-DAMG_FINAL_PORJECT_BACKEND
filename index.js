@@ -1,20 +1,50 @@
+/**
+ * @fileoverview Main server application entry point
+ * @requires express
+ * @requires cors
+ * @requires ./routes/auth
+ * @requires ./routes/admin
+ * @requires ./config/database
+ */
+
 const express = require("express");
 const cors = require("cors");
 const authRoutes = require("./routes/auth");
+const adminRoutes = require("./routes/admin");
+const { connectToDB } = require("./config/database");
 
 const app = express();
 const port = 3000;
 
-// CORS middleware
-app.use(cors()); // This allows all origins
+// Test database connection before starting server
+async function startServer() {
+  try {
+    // Test the connection
+    const connection = await connectToDB();
+    console.log("Database connection successful");
+    await connection.close();
 
-// Middleware to parse JSON bodies
-app.use(express.json());
+    // CORS middleware
+    app.use(cors());
 
-// Use auth routes
-app.use("/api", authRoutes);
+    // Middleware to parse JSON bodies
+    app.use(express.json());
 
-// Start server
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-});
+    // Use auth routes
+    app.use("/api", authRoutes);
+
+    // Use admin routes
+    app.use("/api/admin", adminRoutes);
+
+    // Start server
+    app.listen(port, () => {
+      console.log(`Server running at http://localhost:${port}`);
+    });
+  } catch (err) {
+    console.error("Failed to connect to database:", err);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();
