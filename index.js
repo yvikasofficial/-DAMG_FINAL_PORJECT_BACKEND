@@ -6,7 +6,9 @@
  * @requires ./routes/admin
  * @requires ./routes/staff
  * @requires ./routes/sponsorship
+ * @requires ./routes/events
  * @requires ./config/database
+ * @requires ./routes/streaming
  */
 
 const express = require("express");
@@ -16,6 +18,7 @@ const adminRoutes = require("./routes/admin");
 const staffRoutes = require("./routes/staff");
 const sponsorshipRoutes = require("./routes/sponsorship");
 const { connectToDB } = require("./config/database");
+const streamingRoutes = require("./routes/streaming");
 
 const app = express();
 const port = 3000;
@@ -45,6 +48,9 @@ async function startServer() {
 
     // Use sponsorship routes
     app.use("/api/sponsorships", sponsorshipRoutes);
+
+    // Use streaming routes
+    app.use("/api/streaming", streamingRoutes);
 
     // Start server
     app.listen(port, () => {
