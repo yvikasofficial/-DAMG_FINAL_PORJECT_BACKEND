@@ -9,6 +9,7 @@
  * @requires ./routes/events
  * @requires ./config/database
  * @requires ./routes/streaming
+ * @requires ./routes/artists
  */
 
 const express = require("express");
@@ -19,6 +20,7 @@ const staffRoutes = require("./routes/staff");
 const sponsorshipRoutes = require("./routes/sponsorship");
 const { connectToDB } = require("./config/database");
 const streamingRoutes = require("./routes/streaming");
+const artistRoutes = require("./routes/artists");
 
 const app = express();
 const port = 3000;
@@ -51,6 +53,9 @@ async function startServer() {
 
     // Use streaming routes
     app.use("/api/streaming", streamingRoutes);
+
+    // Use artist routes
+    app.use("/api/artists", artistRoutes);
 
     // Start server
     app.listen(port, () => {
