@@ -131,16 +131,44 @@ router.get("/concert/:concertId/attendee/:attendeeId", async (req, res) => {
 router.post("/", async (req, res) => {
   let connection;
   try {
-    const { concertId, attendeeId, price } = req.body;
+    const { concertId, attendeeId } = req.body;
 
     // Validate required fields
-    if (!concertId || !attendeeId || !price) {
+    if (!concertId || !attendeeId) {
       return res.status(400).json({
-        message: "Concert ID, Attendee ID, and Price are required",
+        message: "Concert ID and Attendee ID are required",
       });
     }
 
     connection = await connectToDB();
+
+    // Get concert price and check availability
+    const concertCheck = await connection.execute(
+      `SELECT 
+                PRICE, 
+                TICKET_SALES_LIMIT,
+                (SELECT COUNT(*) FROM TICKETS WHERE CONCERT_ID = :id) as SOLD_TICKETS
+            FROM CONCERTS 
+            WHERE CONCERT_ID = :id`,
+      [concertId]
+    );
+
+    if (concertCheck.rows.length === 0) {
+      return res.status(404).json({
+        message: "Concert not found",
+      });
+    }
+
+    const concertPrice = concertCheck.rows[0][0];
+    const ticketLimit = concertCheck.rows[0][1];
+    const soldTickets = concertCheck.rows[0][2];
+
+    // Check if tickets are still available
+    if (soldTickets >= ticketLimit) {
+      return res.status(400).json({
+        message: "Sorry, this concert is sold out",
+      });
+    }
 
     // Get new sequence value
     const seqResult = await connection.execute(
@@ -148,7 +176,7 @@ router.post("/", async (req, res) => {
     );
     const ticketId = seqResult.rows[0][0];
 
-    // Insert ticket
+    // Insert ticket with concert price
     await connection.execute(
       `INSERT INTO TICKETS (
                 TICKET_ID,
@@ -165,7 +193,7 @@ router.post("/", async (req, res) => {
             )`,
       {
         ticket_id: ticketId,
-        price: price,
+        price: concertPrice,
         concert_id: concertId,
         attendee_id: attendeeId,
       },
@@ -179,7 +207,9 @@ router.post("/", async (req, res) => {
                 T.PRICE,
                 T.PURCHASE_DATE,
                 T.STATUS,
-                C.NAME AS CONCERT_NAME
+                C.NAME AS CONCERT_NAME,
+                C.CONCERT_DATE,
+                C.CONCERT_TIME
             FROM TICKETS T
             JOIN CONCERTS C ON T.CONCERT_ID = C.CONCERT_ID
             WHERE T.TICKET_ID = :id`,
@@ -192,7 +222,11 @@ router.post("/", async (req, res) => {
       price: row[1],
       purchaseDate: row[2],
       status: row[3],
-      concertName: row[4],
+      concert: {
+        name: row[4],
+        date: row[5],
+        time: row[6],
+      },
     };
 
     res.status(201).json(ticket);
