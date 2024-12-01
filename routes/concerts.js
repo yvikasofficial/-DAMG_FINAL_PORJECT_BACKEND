@@ -7,78 +7,74 @@
 const express = require("express");
 const router = express.Router();
 const { connectToDB } = require("../config/database");
+const oracledb = require("oracledb");
+
+// Configure oracledb to fetch CLOBs as strings
+oracledb.fetchAsString = [oracledb.CLOB];
 
 /**
- * Get all concerts with related data
- * @route GET /api/concerts
- * @returns {Array<Object>} List of concerts with venue, artist, manager, and streaming info
- * @throws {Error} 500 - If retrieval fails
+ * Get all concerts
  */
 router.get("/", async (req, res) => {
   let connection;
   try {
     connection = await connectToDB();
 
+    // First query: Get all concert data except description
     const result = await connection.execute(
       `SELECT 
                 C.CONCERT_ID, 
-                C.NAME AS CONCERT_NAME, 
-                C.CONCERT_DATE,
+                C.NAME, 
+                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
                 C.CONCERT_TIME,
                 C.TICKET_SALES_LIMIT,
                 C.STATUS,
+                C.CREATED_DATE,
                 C.DESCRIPTION,
-                V.VENUE_ID,
                 V.NAME AS VENUE_NAME,
                 V.LOCATION AS VENUE_LOCATION,
-                A.ARTIST_ID,
                 A.NAME AS ARTIST_NAME,
-                A.GENRE,
-                S.STAFF_ID AS MANAGER_ID,
+                A.GENRE AS ARTIST_GENRE,
                 S.NAME AS MANAGER_NAME,
-                SP.PLATFORM_ID,
-                SP.NAME AS PLATFORM_NAME,
-                SP.URL AS STREAMING_URL
-             FROM CONCERTS C
-             LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
-             LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
-             LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
-             LEFT JOIN STREAMING_PLATFORMS SP ON C.STREAMING_ID = SP.PLATFORM_ID
-             ORDER BY C.CONCERT_DATE, C.CONCERT_TIME`
+                SP.NAME AS PLATFORM_NAME
+            FROM CONCERTS C
+            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
+            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
+            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
+            LEFT JOIN STREAMING_PLATFORMS SP ON C.STREAMING_ID = SP.PLATFORM_ID
+            ORDER BY C.CONCERT_DATE DESC`,
+      [],
+      { fetchInfo: { DESCRIPTION: { type: oracledb.STRING } } }
     );
 
     const concerts = result.rows.map((row) => ({
-      concertId: row[0],
+      id: row[0],
       name: row[1],
       date: row[2],
       time: row[3],
       ticketSalesLimit: row[4],
       status: row[5],
-      description: row[6],
+      createdDate: row[6],
+      description: row[7],
       venue: {
-        venueId: row[7],
         name: row[8],
         location: row[9],
       },
       artist: {
-        artistId: row[10],
-        name: row[11],
-        genre: row[12],
+        name: row[10],
+        genre: row[11],
       },
       manager: {
-        managerId: row[13],
-        name: row[14],
+        name: row[12],
       },
       streaming: {
-        platformId: row[15],
-        name: row[16],
-        url: row[17],
+        platform: row[13],
       },
     }));
 
     res.json(concerts);
   } catch (error) {
-    console.error("Error retrieving concerts:", error);
+    console.error("Error:", error);
     res.status(500).json({ message: "Failed to retrieve concerts" });
   } finally {
     if (connection) {
@@ -92,13 +88,87 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * Create a new concert
- * @route POST /api/concerts
- * @param {Object} req.body - Concert details
- * @returns {Object} Created concert details
- * @throws {Error} 400 - If required fields are missing or invalid
- * @throws {Error} 404 - If referenced entities not found
- * @throws {Error} 500 - If creation fails
+ * Get concert by ID
+ */
+router.get("/:id", async (req, res) => {
+  let connection;
+  try {
+    const concertId = req.params.id;
+    connection = await connectToDB();
+
+    const result = await connection.execute(
+      `SELECT 
+                C.CONCERT_ID, 
+                C.NAME, 
+                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
+                C.CONCERT_TIME,
+                C.TICKET_SALES_LIMIT,
+                C.STATUS,
+                C.CREATED_DATE,
+                C.DESCRIPTION,
+                V.NAME AS VENUE_NAME,
+                V.LOCATION AS VENUE_LOCATION,
+                A.NAME AS ARTIST_NAME,
+                A.GENRE AS ARTIST_GENRE,
+                S.NAME AS MANAGER_NAME,
+                SP.NAME AS PLATFORM_NAME
+            FROM CONCERTS C
+            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
+            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
+            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
+            LEFT JOIN STREAMING_PLATFORMS SP ON C.STREAMING_ID = SP.PLATFORM_ID
+            WHERE C.CONCERT_ID = :id`,
+      [concertId],
+      { fetchInfo: { DESCRIPTION: { type: oracledb.STRING } } }
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Concert not found" });
+    }
+
+    const row = result.rows[0];
+    const concert = {
+      id: row[0],
+      name: row[1],
+      date: row[2],
+      time: row[3],
+      ticketSalesLimit: row[4],
+      status: row[5],
+      createdDate: row[6],
+      description: row[7],
+      venue: {
+        name: row[8],
+        location: row[9],
+      },
+      artist: {
+        name: row[10],
+        genre: row[11],
+      },
+      manager: {
+        name: row[12],
+      },
+      streaming: {
+        platform: row[13],
+      },
+    };
+
+    res.json(concert);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Failed to retrieve concert" });
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error closing connection:", err);
+      }
+    }
+  }
+});
+
+/**
+ * Create new concert
  */
 router.post("/", async (req, res) => {
   let connection;
@@ -119,58 +189,23 @@ router.post("/", async (req, res) => {
     // Validate required fields
     if (!name || !date || !time || !venueId || !managerId || !artistId) {
       return res.status(400).json({
-        message: "Name, date, time, venue, manager, and artist are required",
-      });
-    }
-
-    // Validate status
-    const validStatuses = ["Scheduled", "Completed", "Canceled"];
-    if (status && !validStatuses.includes(status)) {
-      return res.status(400).json({
-        message: "Invalid status. Must be Scheduled, Completed, or Canceled",
+        message: "Missing required fields",
       });
     }
 
     connection = await connectToDB();
 
-    // Verify venue exists
-    const venueCheck = await connection.execute(
-      "SELECT 1 FROM VENUES WHERE VENUE_ID = :id",
-      [venueId]
-    );
-    if (venueCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Venue not found" });
-    }
-
-    // Verify artist exists
-    const artistCheck = await connection.execute(
-      "SELECT 1 FROM ARTISTS WHERE ARTIST_ID = :id",
-      [artistId]
-    );
-    if (artistCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Artist not found" });
-    }
-
-    // Verify manager exists
-    const managerCheck = await connection.execute(
-      "SELECT 1 FROM STAFF WHERE STAFF_ID = :id",
-      [managerId]
-    );
-    if (managerCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Manager not found" });
-    }
-
-    // Get new concert ID
+    // Get new sequence value
     const seqResult = await connection.execute(
       "SELECT CONCERT_SEQ.NEXTVAL FROM DUAL"
     );
     const concertId = seqResult.rows[0][0];
 
-    // Insert new concert
+    // Insert new concert using snake_case bind variables
     await connection.execute(
       `INSERT INTO CONCERTS (
-                CONCERT_ID, 
-                NAME, 
+                CONCERT_ID,
+                NAME,
                 CONCERT_DATE,
                 CONCERT_TIME,
                 VENUE_ID,
@@ -181,86 +216,71 @@ router.post("/", async (req, res) => {
                 DESCRIPTION,
                 STREAMING_ID
             ) VALUES (
-                :id,
+                :concert_id,
                 :name,
-                TO_DATE(:date, 'YYYY-MM-DD'),
-                :time,
-                :venueId,
-                :ticketLimit,
+                TO_DATE(:concert_date, 'YYYY-MM-DD'),
+                :concert_time,
+                :venue_id,
+                :ticket_sales_limit,
                 :status,
-                :managerId,
-                :artistId,
+                :manager_id,
+                :artist_id,
                 :description,
-                :streamingId
+                :streaming_id
             )`,
       {
-        id: concertId,
+        concert_id: concertId,
         name: name,
-        date: date,
-        time: time,
-        venueId: venueId,
-        ticketLimit: ticketSalesLimit || 0,
+        concert_date: date,
+        concert_time: time,
+        venue_id: venueId,
+        ticket_sales_limit: ticketSalesLimit || 0,
         status: status || "Scheduled",
-        managerId: managerId,
-        artistId: artistId,
+        manager_id: managerId,
+        artist_id: artistId,
         description: description || null,
-        streamingId: streamingId || null,
+        streaming_id: streamingId || null,
       },
       { autoCommit: true }
     );
 
-    // Fetch the created concert with all related data
+    // Return the created concert
     const result = await connection.execute(
       `SELECT 
                 C.CONCERT_ID, 
-                C.NAME AS CONCERT_NAME,
-                C.CONCERT_DATE,
+                C.NAME, 
+                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
                 C.CONCERT_TIME,
                 C.TICKET_SALES_LIMIT,
                 C.STATUS,
                 C.DESCRIPTION,
-                V.VENUE_ID,
                 V.NAME AS VENUE_NAME,
-                A.ARTIST_ID,
                 A.NAME AS ARTIST_NAME,
-                S.STAFF_ID AS MANAGER_ID,
                 S.NAME AS MANAGER_NAME
-             FROM CONCERTS C
-             JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
-             JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
-             JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
-             WHERE C.CONCERT_ID = :id`,
-      [concertId]
+            FROM CONCERTS C
+            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
+            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
+            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
+            WHERE C.CONCERT_ID = :concert_id`,
+      { concert_id: concertId }
     );
 
     const concert = {
-      concertId: result.rows[0][0],
+      id: result.rows[0][0],
       name: result.rows[0][1],
       date: result.rows[0][2],
       time: result.rows[0][3],
       ticketSalesLimit: result.rows[0][4],
       status: result.rows[0][5],
       description: result.rows[0][6],
-      venue: {
-        venueId: result.rows[0][7],
-        name: result.rows[0][8],
-      },
-      artist: {
-        artistId: result.rows[0][9],
-        name: result.rows[0][10],
-      },
-      manager: {
-        managerId: result.rows[0][11],
-        name: result.rows[0][12],
-      },
+      venue: { name: result.rows[0][7] },
+      artist: { name: result.rows[0][8] },
+      manager: { name: result.rows[0][9] },
     };
 
-    res.status(201).json({
-      success: true,
-      ...concert,
-    });
+    res.status(201).json(concert);
   } catch (error) {
-    console.error("Concert creation error:", error);
+    console.error("Error:", error);
     res.status(500).json({ message: "Failed to create concert" });
   } finally {
     if (connection) {
@@ -274,33 +294,142 @@ router.post("/", async (req, res) => {
 });
 
 /**
- * Delete a concert
- * @route DELETE /api/concerts/:id
- * @param {number} req.params.id - Concert ID to delete
- * @returns {Object} Success message
- * @throws {Error} 404 - If concert not found
- * @throws {Error} 500 - If deletion fails
+ * Update concert
  */
-router.delete("/:id", async (req, res) => {
+router.put("/:id", async (req, res) => {
   let connection;
   try {
     const concertId = req.params.id;
+    const {
+      name,
+      date,
+      time,
+      venueId,
+      ticketSalesLimit,
+      status,
+      managerId,
+      artistId,
+      description,
+      streamingId,
+    } = req.body;
 
     connection = await connectToDB();
 
     // Check if concert exists
     const checkResult = await connection.execute(
-      "SELECT STATUS FROM CONCERTS WHERE CONCERT_ID = :id",
-      [concertId]
+      "SELECT 1 FROM CONCERTS WHERE CONCERT_ID = :concert_id",
+      { concert_id: concertId }
     );
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ message: "Concert not found" });
     }
 
+    // Update concert using snake_case bind variables
+    await connection.execute(
+      `UPDATE CONCERTS SET
+                NAME = :name,
+                CONCERT_DATE = TO_DATE(:concert_date, 'YYYY-MM-DD'),
+                CONCERT_TIME = :concert_time,
+                VENUE_ID = :venue_id,
+                TICKET_SALES_LIMIT = :ticket_sales_limit,
+                STATUS = :status,
+                MANAGER_ID = :manager_id,
+                ARTIST_ID = :artist_id,
+                DESCRIPTION = :description,
+                STREAMING_ID = :streaming_id
+            WHERE CONCERT_ID = :concert_id`,
+      {
+        concert_id: concertId,
+        name: name,
+        concert_date: date,
+        concert_time: time,
+        venue_id: venueId,
+        ticket_sales_limit: ticketSalesLimit,
+        status: status,
+        manager_id: managerId,
+        artist_id: artistId,
+        description: description,
+        streaming_id: streamingId,
+      },
+      { autoCommit: true }
+    );
+
+    // Fetch updated concert with related data
+    const result = await connection.execute(
+      `SELECT 
+                C.CONCERT_ID, 
+                C.NAME, 
+                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
+                C.CONCERT_TIME,
+                C.TICKET_SALES_LIMIT,
+                C.STATUS,
+                C.DESCRIPTION,
+                V.NAME AS VENUE_NAME,
+                A.NAME AS ARTIST_NAME,
+                S.NAME AS MANAGER_NAME
+            FROM CONCERTS C
+            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
+            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
+            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
+            WHERE C.CONCERT_ID = :concert_id`,
+      { concert_id: concertId }
+    );
+
+    const concert = {
+      id: result.rows[0][0],
+      name: result.rows[0][1],
+      date: result.rows[0][2],
+      time: result.rows[0][3],
+      ticketSalesLimit: result.rows[0][4],
+      status: result.rows[0][5],
+      description: result.rows[0][6],
+      venue: { name: result.rows[0][7] },
+      artist: { name: result.rows[0][8] },
+      manager: { name: result.rows[0][9] },
+    };
+
+    res.json(concert);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Failed to update concert" });
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error closing connection:", err);
+      }
+    }
+  }
+});
+
+/**
+ * Delete concert
+ */
+router.delete("/:id", async (req, res) => {
+  let connection;
+  try {
+    const concertId = req.params.id;
+    connection = await connectToDB();
+
+    // Check if concert exists and get its status
+    const checkResult = await connection.execute(
+      "SELECT STATUS FROM CONCERTS WHERE CONCERT_ID = :id",
+      [concertId]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Concert not found",
+      });
+    }
+
     // Don't allow deletion of completed concerts
     if (checkResult.rows[0][0] === "Completed") {
       return res.status(400).json({
+        success: false,
         message: "Cannot delete a completed concert",
       });
     }
@@ -317,8 +446,12 @@ router.delete("/:id", async (req, res) => {
       message: "Concert deleted successfully",
     });
   } catch (error) {
-    console.error("Concert deletion error:", error);
-    res.status(500).json({ message: "Failed to delete concert" });
+    console.error("Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete concert",
+      error: error.message,
+    });
   } finally {
     if (connection) {
       try {
