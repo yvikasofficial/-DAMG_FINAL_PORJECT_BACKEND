@@ -147,10 +147,10 @@ router.post("/", async (req, res) => {
       `SELECT 
                 PRICE, 
                 TICKET_SALES_LIMIT,
-                (SELECT COUNT(*) FROM TICKETS WHERE CONCERT_ID = :id) as SOLD_TICKETS
+                (SELECT COUNT(*) FROM TICKETS WHERE CONCERT_ID = :concertId) as SOLD_TICKETS
             FROM CONCERTS 
-            WHERE CONCERT_ID = :id`,
-      [concertId]
+            WHERE CONCERT_ID = :concertId`,
+      { concertId: concertId }
     );
 
     if (concertCheck.rows.length === 0) {
@@ -185,17 +185,17 @@ router.post("/", async (req, res) => {
                 ATTENDEELD,
                 STATUS
             ) VALUES (
-                :ticket_id,
+                :ticketId,
                 :price,
-                :concert_id,
-                :attendee_id,
+                :concertId,
+                :attendeeId,
                 'ACTIVE'
             )`,
       {
-        ticket_id: ticketId,
+        ticketId: ticketId,
         price: concertPrice,
-        concert_id: concertId,
-        attendee_id: attendeeId,
+        concertId: concertId,
+        attendeeId: attendeeId,
       },
       { autoCommit: true }
     );
@@ -209,11 +209,14 @@ router.post("/", async (req, res) => {
                 T.STATUS,
                 C.NAME AS CONCERT_NAME,
                 C.CONCERT_DATE,
-                C.CONCERT_TIME
+                C.CONCERT_TIME,
+                V.NAME AS VENUE_NAME,
+                V.LOCATION AS VENUE_LOCATION
             FROM TICKETS T
             JOIN CONCERTS C ON T.CONCERT_ID = C.CONCERT_ID
-            WHERE T.TICKET_ID = :id`,
-      [ticketId]
+            JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
+            WHERE T.TICKET_ID = :ticketId`,
+      { ticketId: ticketId }
     );
 
     const row = result.rows[0];
@@ -226,6 +229,10 @@ router.post("/", async (req, res) => {
         name: row[4],
         date: row[5],
         time: row[6],
+        venue: {
+          name: row[7],
+          location: row[8],
+        },
       },
     };
 
