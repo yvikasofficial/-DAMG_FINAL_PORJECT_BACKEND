@@ -13,6 +13,7 @@
  * @requires ./routes/venues
  * @requires ./routes/concerts
  * @requires ./routes/feedback
+ * @requires ./routes/tickets
  */
 
 const express = require("express");
@@ -27,6 +28,7 @@ const artistRoutes = require("./routes/artists");
 const venueRoutes = require("./routes/venues");
 const concertRoutes = require("./routes/concerts");
 const feedbackRoutes = require("./routes/feedback");
+const ticketRoutes = require("./routes/tickets");
 
 const app = express();
 const port = 3000;
@@ -71,6 +73,9 @@ async function startServer() {
 
     // Use feedback routes
     app.use("/api/feedback", feedbackRoutes);
+
+    // Use ticket routes
+    app.use("/api/tickets", ticketRoutes);
 
     // Start server
     app.listen(port, () => {
