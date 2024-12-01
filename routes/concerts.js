@@ -88,7 +88,7 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * Get concert by ID
+ * Get concert by ID using CONCERT_FULL_DETAILS view
  */
 router.get("/:id", async (req, res) => {
   let connection;
@@ -97,29 +97,9 @@ router.get("/:id", async (req, res) => {
     connection = await connectToDB();
 
     const result = await connection.execute(
-      `SELECT 
-                C.CONCERT_ID, 
-                C.NAME, 
-                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
-                C.CONCERT_TIME,
-                C.TICKET_SALES_LIMIT,
-                C.STATUS,
-                C.CREATED_DATE,
-                C.DESCRIPTION,
-                V.NAME AS VENUE_NAME,
-                V.LOCATION AS VENUE_LOCATION,
-                A.NAME AS ARTIST_NAME,
-                A.GENRE AS ARTIST_GENRE,
-                S.NAME AS MANAGER_NAME,
-                SP.NAME AS PLATFORM_NAME
-            FROM CONCERTS C
-            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
-            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
-            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
-            LEFT JOIN STREAMING_PLATFORMS SP ON C.STREAMING_ID = SP.PLATFORM_ID
-            WHERE C.CONCERT_ID = :id`,
-      [concertId],
-      { fetchInfo: { DESCRIPTION: { type: oracledb.STRING } } }
+      `SELECT * FROM CONCERT_FULL_DETAILS 
+             WHERE CONCERT_ID = :id`,
+      [concertId]
     );
 
     if (result.rows.length === 0) {
@@ -132,14 +112,14 @@ router.get("/:id", async (req, res) => {
       name: row[1],
       date: row[2],
       time: row[3],
-      ticketSalesLimit: row[4],
-      status: row[5],
-      createdDate: row[6],
-      description: row[7],
+      status: row[4],
       venue: {
-        name: row[8],
-        location: row[9],
+        name: row[5],
+        location: row[6],
+        capacity: row[7],
       },
+      ticketSalesLimit: row[8],
+      remainingCapacity: row[9],
       artist: {
         name: row[10],
         genre: row[11],
@@ -147,8 +127,9 @@ router.get("/:id", async (req, res) => {
       manager: {
         name: row[12],
       },
-      streaming: {
-        platform: row[13],
+      ratings: {
+        average: row[13],
+        totalFeedbacks: row[14],
       },
     };
 
