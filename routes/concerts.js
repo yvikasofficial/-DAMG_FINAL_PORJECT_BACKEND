@@ -20,31 +20,9 @@ router.get("/", async (req, res) => {
   try {
     connection = await connectToDB();
 
-    // First query: Get all concert data except description
     const result = await connection.execute(
-      `SELECT 
-                C.CONCERT_ID, 
-                C.NAME, 
-                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
-                C.CONCERT_TIME,
-                C.TICKET_SALES_LIMIT,
-                C.STATUS,
-                C.CREATED_DATE,
-                C.DESCRIPTION,
-                V.NAME AS VENUE_NAME,
-                V.LOCATION AS VENUE_LOCATION,
-                A.NAME AS ARTIST_NAME,
-                A.GENRE AS ARTIST_GENRE,
-                S.NAME AS MANAGER_NAME,
-                SP.NAME AS PLATFORM_NAME
-            FROM CONCERTS C
-            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
-            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
-            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
-            LEFT JOIN STREAMING_PLATFORMS SP ON C.STREAMING_ID = SP.PLATFORM_ID
-            ORDER BY C.CONCERT_DATE DESC`,
-      [],
-      { fetchInfo: { DESCRIPTION: { type: oracledb.STRING } } }
+      `SELECT * FROM CONCERT_FULL_DETAILS 
+             ORDER BY CONCERT_DATE DESC`
     );
 
     const concerts = result.rows.map((row) => ({
@@ -52,23 +30,28 @@ router.get("/", async (req, res) => {
       name: row[1],
       date: row[2],
       time: row[3],
-      ticketSalesLimit: row[4],
-      status: row[5],
-      createdDate: row[6],
-      description: row[7],
+      status: row[4],
+      price: row[5],
       venue: {
-        name: row[8],
-        location: row[9],
+        id: row[6],
+        name: row[7],
+        location: row[8],
+        capacity: row[9],
       },
+      ticketSalesLimit: row[10],
+      remainingCapacity: row[11],
       artist: {
-        name: row[10],
-        genre: row[11],
+        id: row[12],
+        name: row[13],
+        genre: row[14],
       },
       manager: {
-        name: row[12],
+        id: row[15],
+        name: row[16],
       },
-      streaming: {
-        platform: row[13],
+      ratings: {
+        average: row[17],
+        totalFeedbacks: row[18],
       },
     }));
 
@@ -88,7 +71,7 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * Get concert by ID using CONCERT_FULL_DETAILS view
+ * Get concert by ID
  */
 router.get("/:id", async (req, res) => {
   let connection;
@@ -113,23 +96,27 @@ router.get("/:id", async (req, res) => {
       date: row[2],
       time: row[3],
       status: row[4],
+      price: row[5],
       venue: {
-        name: row[5],
-        location: row[6],
-        capacity: row[7],
+        id: row[6],
+        name: row[7],
+        location: row[8],
+        capacity: row[9],
       },
-      ticketSalesLimit: row[8],
-      remainingCapacity: row[9],
+      ticketSalesLimit: row[10],
+      remainingCapacity: row[11],
       artist: {
-        name: row[10],
-        genre: row[11],
+        id: row[12],
+        name: row[13],
+        genre: row[14],
       },
       manager: {
-        name: row[12],
+        id: row[15],
+        name: row[16],
       },
       ratings: {
-        average: row[13],
-        totalFeedbacks: row[14],
+        average: row[17],
+        totalFeedbacks: row[18],
       },
     };
 
@@ -159,18 +146,34 @@ router.post("/", async (req, res) => {
       date,
       time,
       venueId,
-      ticketSalesLimit,
-      status,
-      managerId,
       artistId,
+      managerId,
+      ticketSalesLimit,
+      price, // Added price
       description,
-      streamingId,
     } = req.body;
 
     // Validate required fields
-    if (!name || !date || !time || !venueId || !managerId || !artistId) {
+    if (
+      !name ||
+      !date ||
+      !time ||
+      !venueId ||
+      !artistId ||
+      !managerId ||
+      !ticketSalesLimit ||
+      !price
+    ) {
       return res.status(400).json({
-        message: "Missing required fields",
+        message:
+          "Name, date, time, venue ID, artist ID, manager ID, ticket sales limit, and price are required",
+      });
+    }
+
+    // Validate price
+    if (price <= 0) {
+      return res.status(400).json({
+        message: "Price must be greater than 0",
       });
     }
 
@@ -182,7 +185,7 @@ router.post("/", async (req, res) => {
     );
     const concertId = seqResult.rows[0][0];
 
-    // Insert new concert using snake_case bind variables
+    // Insert concert
     await connection.execute(
       `INSERT INTO CONCERTS (
                 CONCERT_ID,
@@ -190,73 +193,72 @@ router.post("/", async (req, res) => {
                 CONCERT_DATE,
                 CONCERT_TIME,
                 VENUE_ID,
-                TICKET_SALES_LIMIT,
-                STATUS,
-                MANAGER_ID,
                 ARTIST_ID,
+                MANAGER_ID,
+                TICKET_SALES_LIMIT,
+                PRICE,
                 DESCRIPTION,
-                STREAMING_ID
+                STATUS
             ) VALUES (
                 :concert_id,
                 :name,
-                TO_DATE(:concert_date, 'YYYY-MM-DD'),
-                :concert_time,
+                TO_DATE(:date, 'YYYY-MM-DD'),
+                :time,
                 :venue_id,
-                :ticket_sales_limit,
-                :status,
-                :manager_id,
                 :artist_id,
+                :manager_id,
+                :ticket_limit,
+                :price,
                 :description,
-                :streaming_id
+                'Scheduled'
             )`,
       {
         concert_id: concertId,
         name: name,
-        concert_date: date,
-        concert_time: time,
+        date: date,
+        time: time,
         venue_id: venueId,
-        ticket_sales_limit: ticketSalesLimit || 0,
-        status: status || "Scheduled",
-        manager_id: managerId,
         artist_id: artistId,
+        manager_id: managerId,
+        ticket_limit: ticketSalesLimit,
+        price: price,
         description: description || null,
-        streaming_id: streamingId || null,
       },
       { autoCommit: true }
     );
 
-    // Return the created concert
+    // Get the created concert
     const result = await connection.execute(
-      `SELECT 
-                C.CONCERT_ID, 
-                C.NAME, 
-                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
-                C.CONCERT_TIME,
-                C.TICKET_SALES_LIMIT,
-                C.STATUS,
-                C.DESCRIPTION,
-                V.NAME AS VENUE_NAME,
-                A.NAME AS ARTIST_NAME,
-                S.NAME AS MANAGER_NAME
-            FROM CONCERTS C
-            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
-            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
-            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
-            WHERE C.CONCERT_ID = :concert_id`,
-      { concert_id: concertId }
+      `SELECT * FROM CONCERT_FULL_DETAILS WHERE CONCERT_ID = :id`,
+      [concertId]
     );
 
+    const row = result.rows[0];
     const concert = {
-      id: result.rows[0][0],
-      name: result.rows[0][1],
-      date: result.rows[0][2],
-      time: result.rows[0][3],
-      ticketSalesLimit: result.rows[0][4],
-      status: result.rows[0][5],
-      description: result.rows[0][6],
-      venue: { name: result.rows[0][7] },
-      artist: { name: result.rows[0][8] },
-      manager: { name: result.rows[0][9] },
+      id: row[0],
+      name: row[1],
+      date: row[2],
+      time: row[3],
+      status: row[4],
+      price: row[5],
+      venue: {
+        name: row[6],
+        location: row[7],
+        capacity: row[8],
+      },
+      ticketSalesLimit: row[9],
+      remainingCapacity: row[10],
+      artist: {
+        name: row[11],
+        genre: row[12],
+      },
+      manager: {
+        name: row[13],
+      },
+      ratings: {
+        average: row[14],
+        totalFeedbacks: row[15],
+      },
     };
 
     res.status(201).json(concert);
@@ -286,88 +288,95 @@ router.put("/:id", async (req, res) => {
       date,
       time,
       venueId,
-      ticketSalesLimit,
-      status,
-      managerId,
       artistId,
+      managerId,
+      ticketSalesLimit,
+      price, // Added price
+      status,
       description,
-      streamingId,
     } = req.body;
 
     connection = await connectToDB();
 
     // Check if concert exists
     const checkResult = await connection.execute(
-      "SELECT 1 FROM CONCERTS WHERE CONCERT_ID = :concert_id",
-      { concert_id: concertId }
+      "SELECT 1 FROM CONCERTS WHERE CONCERT_ID = :id",
+      [concertId]
     );
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ message: "Concert not found" });
     }
 
-    // Update concert using snake_case bind variables
+    // Validate price if provided
+    if (price !== undefined && price <= 0) {
+      return res.status(400).json({
+        message: "Price must be greater than 0",
+      });
+    }
+
+    // Update concert
     await connection.execute(
       `UPDATE CONCERTS SET
-                NAME = :name,
-                CONCERT_DATE = TO_DATE(:concert_date, 'YYYY-MM-DD'),
-                CONCERT_TIME = :concert_time,
-                VENUE_ID = :venue_id,
-                TICKET_SALES_LIMIT = :ticket_sales_limit,
-                STATUS = :status,
-                MANAGER_ID = :manager_id,
-                ARTIST_ID = :artist_id,
-                DESCRIPTION = :description,
-                STREAMING_ID = :streaming_id
-            WHERE CONCERT_ID = :concert_id`,
+                NAME = NVL(:name, NAME),
+                CONCERT_DATE = NVL(TO_DATE(:date, 'YYYY-MM-DD'), CONCERT_DATE),
+                CONCERT_TIME = NVL(:time, CONCERT_TIME),
+                VENUE_ID = NVL(:venue_id, VENUE_ID),
+                ARTIST_ID = NVL(:artist_id, ARTIST_ID),
+                MANAGER_ID = NVL(:manager_id, MANAGER_ID),
+                TICKET_SALES_LIMIT = NVL(:ticket_limit, TICKET_SALES_LIMIT),
+                PRICE = NVL(:price, PRICE),
+                STATUS = NVL(:status, STATUS),
+                DESCRIPTION = :description
+            WHERE CONCERT_ID = :id`,
       {
-        concert_id: concertId,
+        id: concertId,
         name: name,
-        concert_date: date,
-        concert_time: time,
+        date: date,
+        time: time,
         venue_id: venueId,
-        ticket_sales_limit: ticketSalesLimit,
-        status: status,
-        manager_id: managerId,
         artist_id: artistId,
+        manager_id: managerId,
+        ticket_limit: ticketSalesLimit,
+        price: price,
+        status: status,
         description: description,
-        streaming_id: streamingId,
       },
       { autoCommit: true }
     );
 
-    // Fetch updated concert with related data
+    // Get updated concert
     const result = await connection.execute(
-      `SELECT 
-                C.CONCERT_ID, 
-                C.NAME, 
-                TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') AS CONCERT_DATE,
-                C.CONCERT_TIME,
-                C.TICKET_SALES_LIMIT,
-                C.STATUS,
-                C.DESCRIPTION,
-                V.NAME AS VENUE_NAME,
-                A.NAME AS ARTIST_NAME,
-                S.NAME AS MANAGER_NAME
-            FROM CONCERTS C
-            LEFT JOIN VENUES V ON C.VENUE_ID = V.VENUE_ID
-            LEFT JOIN ARTISTS A ON C.ARTIST_ID = A.ARTIST_ID
-            LEFT JOIN STAFF S ON C.MANAGER_ID = S.STAFF_ID
-            WHERE C.CONCERT_ID = :concert_id`,
-      { concert_id: concertId }
+      `SELECT * FROM CONCERT_FULL_DETAILS WHERE CONCERT_ID = :id`,
+      [concertId]
     );
 
+    const row = result.rows[0];
     const concert = {
-      id: result.rows[0][0],
-      name: result.rows[0][1],
-      date: result.rows[0][2],
-      time: result.rows[0][3],
-      ticketSalesLimit: result.rows[0][4],
-      status: result.rows[0][5],
-      description: result.rows[0][6],
-      venue: { name: result.rows[0][7] },
-      artist: { name: result.rows[0][8] },
-      manager: { name: result.rows[0][9] },
+      id: row[0],
+      name: row[1],
+      date: row[2],
+      time: row[3],
+      status: row[4],
+      price: row[5],
+      venue: {
+        name: row[6],
+        location: row[7],
+        capacity: row[8],
+      },
+      ticketSalesLimit: row[9],
+      remainingCapacity: row[10],
+      artist: {
+        name: row[11],
+        genre: row[12],
+      },
+      manager: {
+        name: row[13],
+      },
+      ratings: {
+        average: row[14],
+        totalFeedbacks: row[15],
+      },
     };
 
     res.json(concert);
