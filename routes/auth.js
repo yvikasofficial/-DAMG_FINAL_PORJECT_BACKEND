@@ -13,37 +13,80 @@ const { connectToDB } = require("../config/database");
  * @throws {500} If registration fails
  */
 router.post("/register", async (req, res) => {
+  let connection;
   try {
-    const connection = await connectToDB();
-    const { name, contactInfo, password } = req.body;
+    const { name, contactInfo, phone, password } = req.body;
 
-    // Generate a new AttendeeId
-    const result = await connection.execute(
-      `SELECT NVL(MAX(Attendeeld), 0) + 1 as newId FROM Attendee`
+    // Validate required fields
+    if (!name || !contactInfo || !password) {
+      return res.status(400).json({
+        message: "Name, contactInfo, and password are required",
+      });
+    }
+
+    connection = await connectToDB();
+
+    // Check if contactInfo already exists
+    const contactCheck = await connection.execute(
+      "SELECT 1 FROM ATTENDEE WHERE CONTACTINFO = :contactInfo",
+      [contactInfo]
     );
-    const attendeeId = result.rows[0][0];
 
-    // Insert new attendee
+    if (contactCheck.rows.length > 0) {
+      return res.status(409).json({
+        message:
+          "Contact Info already in use. Please use a different contact info.",
+      });
+    }
+
+    // Get new sequence value
+    const seqResult = await connection.execute(
+      "SELECT ATTENDEE_SEQ.NEXTVAL FROM DUAL"
+    );
+    const attendeeId = seqResult.rows[0][0];
+
+    // Insert attendee
     await connection.execute(
-      `INSERT INTO Attendee (Attendeeld, Name, ContactInfo, Password, PurchaseHistory, LoyaltyPoints) 
-       VALUES (:id, :name, :contact, :password, '', 0)`,
+      `INSERT INTO ATTENDEE (
+        ATTENDEELD,
+        NAME,
+        CONTACTINFO,
+        PHONE,
+        PASSWORD
+      ) VALUES (
+        :attendee_id,
+        :name,
+        :contactInfo,
+        :phone,
+        :password
+      )`,
       {
-        id: attendeeId,
+        attendee_id: attendeeId,
         name: name,
-        contact: contactInfo,
+        contactInfo: contactInfo,
+        phone: phone || null,
         password: password,
       },
       { autoCommit: true }
     );
 
-    await connection.close();
     res.status(201).json({
-      message: "Registration successful",
-      attendeeId: attendeeId,
+      id: attendeeId,
+      name,
+      contactInfo,
+      phone,
     });
-  } catch (err) {
-    console.error("Registration error:", err);
-    res.status(500).json({ error: "Registration failed" });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Failed to register attendee" });
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error closing connection:", err);
+      }
+    }
   }
 });
 
