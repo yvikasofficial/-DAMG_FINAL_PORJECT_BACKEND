@@ -291,7 +291,7 @@ router.put("/:id", async (req, res) => {
       artistId,
       managerId,
       ticketSalesLimit,
-      price, // Added price
+      price,
       status,
       description,
     } = req.body;
@@ -316,31 +316,35 @@ router.put("/:id", async (req, res) => {
     }
 
     // Update concert
+    const updateQuery = `
+      UPDATE CONCERTS SET
+        NAME = :name,
+        CONCERT_DATE = TO_DATE(:concertdate, 'YYYY-MM-DD'),
+        CONCERT_TIME = :concerttime,
+        VENUE_ID = :venueid,
+        ARTIST_ID = :artistid,
+        MANAGER_ID = :managerid,
+        TICKET_SALES_LIMIT = :ticketlimit,
+        PRICE = :price,
+        STATUS = :status,
+        DESCRIPTION = :description
+      WHERE CONCERT_ID = :id
+    `;
+
     await connection.execute(
-      `UPDATE CONCERTS SET
-                NAME = NVL(:name, NAME),
-                CONCERT_DATE = NVL(TO_DATE(:date, 'YYYY-MM-DD'), CONCERT_DATE),
-                CONCERT_TIME = NVL(:time, CONCERT_TIME),
-                VENUE_ID = NVL(:venue_id, VENUE_ID),
-                ARTIST_ID = NVL(:artist_id, ARTIST_ID),
-                MANAGER_ID = NVL(:manager_id, MANAGER_ID),
-                TICKET_SALES_LIMIT = NVL(:ticket_limit, TICKET_SALES_LIMIT),
-                PRICE = NVL(:price, PRICE),
-                STATUS = NVL(:status, STATUS),
-                DESCRIPTION = :description
-            WHERE CONCERT_ID = :id`,
+      updateQuery,
       {
+        name: name || null,
+        concertdate: date || null,
+        concerttime: time || null,
+        venueid: venueId || null,
+        artistid: artistId || null,
+        managerid: managerId || null,
+        ticketlimit: ticketSalesLimit || null,
+        price: price || null,
+        status: status || null,
+        description: description || null,
         id: concertId,
-        name: name,
-        date: date,
-        time: time,
-        venue_id: venueId,
-        artist_id: artistId,
-        manager_id: managerId,
-        ticket_limit: ticketSalesLimit,
-        price: price,
-        status: status,
-        description: description,
       },
       { autoCommit: true }
     );
@@ -360,22 +364,25 @@ router.put("/:id", async (req, res) => {
       status: row[4],
       price: row[5],
       venue: {
-        name: row[6],
-        location: row[7],
-        capacity: row[8],
+        id: row[6],
+        name: row[7],
+        location: row[8],
+        capacity: row[9],
       },
-      ticketSalesLimit: row[9],
-      remainingCapacity: row[10],
+      ticketSalesLimit: row[10],
+      remainingCapacity: row[11],
       artist: {
-        name: row[11],
-        genre: row[12],
+        id: row[12],
+        name: row[13],
+        genre: row[14],
       },
       manager: {
-        name: row[13],
+        id: row[15],
+        name: row[16],
       },
       ratings: {
-        average: row[14],
-        totalFeedbacks: row[15],
+        average: row[17],
+        totalFeedbacks: row[18],
       },
     };
 
