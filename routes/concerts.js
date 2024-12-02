@@ -462,4 +462,147 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+/**
+ * Get concert revenue
+ */
+router.get("/:id/revenue", async (req, res) => {
+  let connection;
+  try {
+    const concertId = req.params.id;
+    connection = await connectToDB();
+
+    const result = await connection.execute(
+      `SELECT CALCULATE_CONCERT_REVENUE(:id) as REVENUE FROM DUAL`,
+      { id: concertId }
+    );
+
+    const revenue = result.rows[0][0];
+    res.json({ revenue });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Failed to calculate revenue" });
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error closing connection:", err);
+      }
+    }
+  }
+});
+
+/**
+ * Update concert price
+ */
+router.put("/:id/price", async (req, res) => {
+  let connection;
+  try {
+    const concertId = req.params.id;
+    const { priceIncrease } = req.body;
+
+    if (priceIncrease === undefined) {
+      return res.status(400).json({
+        message: "Price increase amount is required",
+      });
+    }
+
+    connection = await connectToDB();
+
+    // Execute the price update procedure
+    const result = await connection.execute(
+      `DECLARE
+                v_result VARCHAR2(200);
+             BEGIN
+                UPDATE_CONCERT_PRICES(:id, :increase, v_result);
+                :result := v_result;
+             END;`,
+      {
+        id: concertId,
+        increase: priceIncrease,
+        result: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 200 },
+      }
+    );
+
+    const updateResult = result.outBinds.result;
+    res.json({ message: updateResult });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Failed to update price" });
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error closing connection:", err);
+      }
+    }
+  }
+});
+
+/**
+ * Get concert summary
+ */
+router.get("/:id/summary", async (req, res) => {
+  let connection;
+  try {
+    const concertId = req.params.id;
+    connection = await connectToDB();
+
+    // Get concert details
+    const result = await connection.execute(
+      `WITH TICKET_COUNT AS (
+          SELECT COUNT(*) as SOLD_COUNT
+          FROM TICKETS 
+          WHERE CONCERT_ID = :id 
+          AND STATUS = 'ACTIVE'
+      )
+      SELECT 
+          C.NAME,
+          TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') as CONCERT_DATE,
+          C.CONCERT_TIME,
+          C.PRICE,
+          C.TICKET_SALES_LIMIT,
+          T.SOLD_COUNT as TICKETS_SOLD,
+          (SELECT COUNT(*) FROM SPONSORSHIPS WHERE CONCERT_ID = C.CONCERT_ID) as SPONSOR_COUNT,
+          CALCULATE_CONCERT_REVENUE(C.CONCERT_ID) as TOTAL_REVENUE,
+          CASE WHEN T.SOLD_COUNT >= C.TICKET_SALES_LIMIT THEN 1 ELSE 0 END as IS_SOLD_OUT
+      FROM CONCERTS C
+      CROSS JOIN TICKET_COUNT T
+      WHERE C.CONCERT_ID = :id`,
+      { id: concertId }
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Concert not found" });
+    }
+
+    const row = result.rows[0];
+    const summary = {
+      name: row[0],
+      date: row[1],
+      time: row[2],
+      currentPrice: row[3],
+      ticketLimit: row[4],
+      ticketsSold: row[5],
+      sponsorCount: row[6],
+      totalRevenue: row[7],
+      isSoldOut: row[8] === 1,
+    };
+
+    res.json(summary);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Failed to generate summary" });
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error closing connection:", err);
+      }
+    }
+  }
+});
+
 module.exports = router;
