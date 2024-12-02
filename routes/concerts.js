@@ -13,6 +13,26 @@ const oracledb = require("oracledb");
 oracledb.fetchAsString = [oracledb.CLOB];
 
 /**
+ * Helper function to fetch data from cursor
+ * @param {oracledb.ResultSet} cursor - Oracle cursor to fetch data from
+ * @returns {Promise<Array>} Array of rows from the cursor
+ */
+async function fetchCursorData(cursor) {
+  const rows = [];
+  try {
+    let row;
+    while ((row = await cursor.getRow())) {
+      rows.push(row);
+    }
+  } finally {
+    if (cursor && !cursor.isClosed) {
+      await cursor.close();
+    }
+  }
+  return rows;
+}
+
+/**
  * Get all concerts
  */
 router.get("/", async (req, res) => {
@@ -598,6 +618,113 @@ router.get("/:id/summary", async (req, res) => {
     } else {
       res.status(500).json({ message: "Failed to generate summary" });
     }
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error closing connection:", err);
+      }
+    }
+  }
+});
+
+/**
+ * Get attendee dashboard
+ */
+router.get("/attendee/:attendeeId/dashboard", async (req, res) => {
+  let connection;
+  try {
+    const attendeeId = req.params.attendeeId;
+    connection = await connectToDB();
+
+    const result = await connection.execute(
+      `BEGIN
+        GET_ATTENDEE_DASHBOARD(
+          :attendeeId,
+          :upcomingTickets,
+          :pastTickets,
+          :stats
+        );
+      END;`,
+      {
+        attendeeId: attendeeId,
+        upcomingTickets: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
+        pastTickets: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
+        stats: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
+      }
+    );
+
+    // Fetch data from cursors
+    const upcomingTicketsCursor = result.outBinds.upcomingTickets;
+    const pastTicketsCursor = result.outBinds.pastTickets;
+    const statsCursor = result.outBinds.stats;
+
+    const upcomingTickets = await fetchCursorData(upcomingTicketsCursor);
+    const pastTickets = await fetchCursorData(pastTicketsCursor);
+    const statsData = await fetchCursorData(statsCursor);
+
+    const dashboard = {
+      attendee: {
+        name: statsData[0]?.[0],
+        loyaltyPoints: statsData[0]?.[1],
+        totalTickets: statsData[0]?.[2],
+        totalSpent: statsData[0]?.[3],
+        totalReviews: statsData[0]?.[4],
+        favoriteGenre: statsData[0]?.[5],
+      },
+      upcomingConcerts: upcomingTickets.map((row) => ({
+        ticketId: row[0],
+        price: row[1],
+        purchaseDate: row[2],
+        ticketStatus: row[3],
+        concert: {
+          id: row[4],
+          name: row[5],
+          date: row[6],
+          time: row[7],
+          status: row[8],
+        },
+        venue: {
+          name: row[9],
+          location: row[10],
+        },
+        artist: {
+          name: row[11],
+          genre: row[12],
+        },
+      })),
+      pastConcerts: pastTickets.map((row) => ({
+        ticketId: row[0],
+        price: row[1],
+        purchaseDate: row[2],
+        ticketStatus: row[3],
+        concert: {
+          id: row[4],
+          name: row[5],
+          date: row[6],
+          time: row[7],
+          status: row[8],
+        },
+        venue: {
+          name: row[9],
+          location: row[10],
+        },
+        artist: {
+          name: row[11],
+          genre: row[12],
+        },
+        feedback: {
+          rating: row[13],
+          comment: row[14],
+        },
+      })),
+    };
+
+    res.json(dashboard);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Failed to generate dashboard" });
   } finally {
     if (connection) {
       try {
