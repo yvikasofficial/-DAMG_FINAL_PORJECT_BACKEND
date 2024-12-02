@@ -7,6 +7,7 @@
 const express = require("express");
 const router = express.Router();
 const { connectToDB } = require("../config/database");
+const oracledb = require("oracledb");
 
 /**
  * Get all venues
@@ -19,19 +20,24 @@ router.get("/", async (req, res) => {
   try {
     connection = await connectToDB();
 
+    // Using VENUES_PACKAGE.LIST_ALL_VENUES instead of direct SQL
     const result = await connection.execute(
-      `SELECT 
-                VENUE_ID, 
-                NAME, 
-                LOCATION, 
-                CAPACITY, 
-                AVAILABILITY_SCHEDULE, 
-                FACILITIES 
-             FROM VENUES 
-             ORDER BY NAME`
+      `DECLARE
+        v_cursor VENUES_PACKAGE.VENUES_CURSOR;
+       BEGIN
+        VENUES_PACKAGE.LIST_ALL_VENUES(v_cursor);
+        :cursor := v_cursor;
+       END;`,
+      {
+        cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
+      }
     );
 
-    const venues = result.rows.map((row) => ({
+    const resultSet = result.outBinds.cursor;
+    const rows = await resultSet.getRows();
+    await resultSet.close();
+
+    const venues = rows.map((row) => ({
       venueId: row[0],
       name: row[1],
       location: row[2],
@@ -90,48 +96,29 @@ router.post("/", async (req, res) => {
 
     connection = await connectToDB();
 
-    // Get new venue ID
-    const seqResult = await connection.execute(
-      "SELECT VENUE_SEQ.NEXTVAL FROM DUAL"
-    );
-    const venueId = seqResult.rows[0][0];
-
-    // Insert new venue
+    // Using VENUES_PACKAGE.ADD_VENUE instead of direct SQL
     await connection.execute(
-      `INSERT INTO VENUES (
-                VENUE_ID, 
-                NAME, 
-                LOCATION, 
-                CAPACITY, 
-                AVAILABILITY_SCHEDULE, 
-                FACILITIES
-            ) VALUES (
-                :id, 
-                :name, 
-                :location, 
-                :capacity, 
-                :availabilitySchedule, 
-                :facilities
-            )`,
+      `BEGIN
+        VENUES_PACKAGE.ADD_VENUE(
+          :name, 
+          :location, 
+          :capacity, 
+          :availabilitySchedule, 
+          :facilities
+        );
+       END;`,
       {
-        id: venueId,
         name: name,
         location: location,
         capacity: capacity,
         availabilitySchedule: availabilitySchedule || null,
         facilities: facilities || null,
-      },
-      { autoCommit: true }
+      }
     );
 
     res.status(201).json({
       success: true,
-      venueId: venueId,
-      name: name,
-      location: location,
-      capacity: capacity,
-      availabilitySchedule: availabilitySchedule,
-      facilities: facilities,
+      message: "Venue created successfully",
     });
   } catch (error) {
     console.error("Venue creation error:", error);
@@ -159,33 +146,44 @@ router.delete("/:id", async (req, res) => {
   let connection;
   try {
     const venueId = req.params.id;
-
     connection = await connectToDB();
 
-    // Check if venue exists
-    const checkResult = await connection.execute(
-      "SELECT 1 FROM VENUES WHERE VENUE_ID = :id",
-      [venueId]
+    // Using VENUES_PACKAGE.DELETE_VENUE instead of direct SQL
+    const result = await connection.execute(
+      `DECLARE
+        v_status VARCHAR2(200);
+       BEGIN
+        VENUES_PACKAGE.DELETE_VENUE(:id, v_status);
+        :status := v_status;
+       END;`,
+      {
+        id: venueId,
+        status: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 200 },
+      }
     );
 
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ message: "Venue not found" });
+    const status = result.outBinds.status || "";
+
+    if (!status) {
+      throw new Error("No status returned from delete operation");
     }
 
-    // Delete venue
-    await connection.execute(
-      "DELETE FROM VENUES WHERE VENUE_ID = :id",
-      [venueId],
-      { autoCommit: true }
-    );
-
-    res.json({
-      success: true,
-      message: "Venue deleted successfully",
-    });
+    if (status.includes("successfully")) {
+      res.json({
+        success: true,
+        message: status,
+      });
+    } else if (status.includes("not found")) {
+      res.status(404).json({ message: status });
+    } else {
+      res.status(500).json({ message: status });
+    }
   } catch (error) {
     console.error("Venue deletion error:", error);
-    res.status(500).json({ message: "Failed to delete venue" });
+    res.status(500).json({
+      message: "Failed to delete venue",
+      error: error.message,
+    });
   } finally {
     if (connection) {
       try {
