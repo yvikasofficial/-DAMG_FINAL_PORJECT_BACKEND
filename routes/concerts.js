@@ -151,7 +151,7 @@ router.post("/", async (req, res) => {
       artistId,
       managerId,
       ticketSalesLimit,
-      price, // Added price
+      price,
       description,
     } = req.body;
 
@@ -167,72 +167,64 @@ router.post("/", async (req, res) => {
       !price
     ) {
       return res.status(400).json({
-        message:
-          "Name, date, time, venue ID, artist ID, manager ID, ticket sales limit, and price are required",
-      });
-    }
-
-    // Validate price
-    if (price <= 0) {
-      return res.status(400).json({
-        message: "Price must be greater than 0",
+        message: "All fields are required except description",
       });
     }
 
     connection = await connectToDB();
 
-    // Get new sequence value
+    // Get new concert ID
     const seqResult = await connection.execute(
       "SELECT CONCERT_SEQ.NEXTVAL FROM DUAL"
     );
     const concertId = seqResult.rows[0][0];
 
-    // Insert concert
+    // Create concert
     await connection.execute(
       `INSERT INTO CONCERTS (
-                CONCERT_ID,
-                NAME,
-                CONCERT_DATE,
-                CONCERT_TIME,
-                VENUE_ID,
-                ARTIST_ID,
-                MANAGER_ID,
-                TICKET_SALES_LIMIT,
-                PRICE,
-                DESCRIPTION,
-                STATUS
-            ) VALUES (
-                :concert_id,
-                :name,
-                TO_DATE(:date, 'YYYY-MM-DD'),
-                :time,
-                :venue_id,
-                :artist_id,
-                :manager_id,
-                :ticket_limit,
-                :price,
-                :description,
-                'Scheduled'
-            )`,
+        CONCERT_ID,
+        NAME,
+        CONCERT_DATE,
+        CONCERT_TIME,
+        VENUE_ID,
+        ARTIST_ID,
+        MANAGER_ID,
+        TICKET_SALES_LIMIT,
+        PRICE,
+        STATUS,
+        DESCRIPTION
+      ) VALUES (
+        :concertid,
+        :concertname,
+        TO_DATE(:concertdate, 'YYYY-MM-DD'),
+        :concerttime,
+        :venueid,
+        :artistid,
+        :managerid,
+        :ticketlimit,
+        :price,
+        'Scheduled',
+        :description
+      )`,
       {
-        concert_id: concertId,
-        name: name,
-        date: date,
-        time: time,
-        venue_id: venueId,
-        artist_id: artistId,
-        manager_id: managerId,
-        ticket_limit: ticketSalesLimit,
+        concertid: concertId,
+        concertname: name,
+        concertdate: date,
+        concerttime: time,
+        venueid: venueId,
+        artistid: artistId,
+        managerid: managerId,
+        ticketlimit: ticketSalesLimit,
         price: price,
         description: description || null,
       },
       { autoCommit: true }
     );
 
-    // Get the created concert
+    // Get created concert
     const result = await connection.execute(
       `SELECT * FROM CONCERT_FULL_DETAILS WHERE CONCERT_ID = :id`,
-      [concertId]
+      { id: concertId }
     );
 
     const row = result.rows[0];
@@ -243,23 +235,27 @@ router.post("/", async (req, res) => {
       time: row[3],
       status: row[4],
       price: row[5],
+      description: row[6],
       venue: {
-        name: row[6],
-        location: row[7],
-        capacity: row[8],
+        id: row[7],
+        name: row[8],
+        location: row[9],
+        capacity: row[10],
       },
-      ticketSalesLimit: row[9],
-      remainingCapacity: row[10],
+      ticketSalesLimit: row[11],
+      remainingCapacity: row[12],
       artist: {
-        name: row[11],
-        genre: row[12],
+        id: row[13],
+        name: row[14],
+        genre: row[15],
       },
       manager: {
-        name: row[13],
+        id: row[16],
+        name: row[17],
       },
       ratings: {
-        average: row[14],
-        totalFeedbacks: row[15],
+        average: row[18],
+        totalFeedbacks: row[19],
       },
     };
 

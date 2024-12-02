@@ -1,21 +1,15 @@
 const express = require("express");
 const router = express.Router();
 const { connectToDB } = require("../config/database");
+const oracledb = require("oracledb");
 
 /**
- * Register a new attendee
- * @route POST /register
- * @param {Object} req.body
- * @param {string} req.body.name - The attendee's full name
- * @param {string} req.body.contactInfo - The attendee's contact information (email/phone)
- * @param {string} req.body.password - The attendee's password
- * @returns {Object} Message and attendeeId
- * @throws {500} If registration fails
+ * Register new attendee
  */
 router.post("/register", async (req, res) => {
   let connection;
   try {
-    const { name, contactInfo, phone, password } = req.body;
+    const { name, contactInfo, password } = req.body;
 
     // Validate required fields
     if (!name || !contactInfo || !password) {
@@ -29,7 +23,7 @@ router.post("/register", async (req, res) => {
     // Check if contactInfo already exists
     const contactCheck = await connection.execute(
       "SELECT 1 FROM ATTENDEE WHERE CONTACTINFO = :contactInfo",
-      [contactInfo]
+      { contactInfo }
     );
 
     if (contactCheck.rows.length > 0) {
@@ -39,42 +33,38 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // Get new sequence value
-    const seqResult = await connection.execute(
-      "SELECT ATTENDEE_SEQ.NEXTVAL FROM DUAL"
+    // Get next ID
+    const idResult = await connection.execute(
+      "SELECT NVL(MAX(ATTENDEELD), 0) + 1 FROM ATTENDEE"
     );
-    const attendeeId = seqResult.rows[0][0];
+    const nextId = idResult.rows[0][0];
 
     // Insert attendee
     await connection.execute(
       `INSERT INTO ATTENDEE (
-        ATTENDEELD,
-        NAME,
-        CONTACTINFO,
-        PHONE,
-        PASSWORD
-      ) VALUES (
-        :attendee_id,
-        :name,
-        :contactInfo,
-        :phone,
-        :password
-      )`,
+                ATTENDEELD,
+                NAME,
+                CONTACTINFO,
+                PASSWORD
+            ) VALUES (
+                :id,
+                :name,
+                :contactInfo,
+                :password
+            )`,
       {
-        attendee_id: attendeeId,
+        id: nextId,
         name: name,
         contactInfo: contactInfo,
-        phone: phone || null,
         password: password,
       },
       { autoCommit: true }
     );
 
     res.status(201).json({
-      id: attendeeId,
+      id: nextId,
       name,
       contactInfo,
-      phone,
     });
   } catch (error) {
     console.error("Error:", error);
