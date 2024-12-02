@@ -20,19 +20,7 @@ router.get("/", async (req, res) => {
     connection = await connectToDB();
 
     const result = await connection.execute(
-      `SELECT 
-                A.ARTIST_ID, 
-                A.NAME, 
-                A.GENRE, 
-                A.CONTACT_INFO, 
-                A.AVAILABILITY, 
-                A.SOCIAL_MEDIA_LINK, 
-                A.MANAGER_ID,
-                S.NAME AS MANAGER_NAME,
-                S.ROLE AS MANAGER_ROLE
-             FROM ARTISTS A
-             LEFT JOIN STAFF S ON A.MANAGER_ID = S.STAFF_ID 
-             ORDER BY A.NAME`
+      `SELECT * FROM V_ARTISTS_WITH_MANAGERS`
     );
 
     const artists = result.rows.map((row) => ({
@@ -46,6 +34,10 @@ router.get("/", async (req, res) => {
         managerId: row[6],
         name: row[7],
         role: row[8],
+      },
+      statistics: {
+        totalConcerts: row[9],
+        averageConcertPrice: row[10],
       },
     }));
 
