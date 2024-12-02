@@ -408,37 +408,40 @@ router.delete("/:id", async (req, res) => {
     const concertId = req.params.id;
     connection = await connectToDB();
 
-    // Check if concert exists and get its status
-    const checkResult = await connection.execute(
-      "SELECT STATUS FROM CONCERTS WHERE CONCERT_ID = :id",
-      [concertId]
+    // Call the procedure to delete concert and tickets
+    const result = await connection.execute(
+      `BEGIN
+        DELETE_CONCERT_AND_TICKETS(:id, :status);
+      END;`,
+      {
+        id: concertId,
+        status: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 200 },
+      }
     );
 
-    if (checkResult.rows.length === 0) {
+    const deleteStatus = result.outBinds.status;
+
+    if (deleteStatus.includes("not found")) {
       return res.status(404).json({
         success: false,
-        message: "Concert not found",
+        message: deleteStatus,
       });
     }
 
-    // Don't allow deletion of completed concerts
-    if (checkResult.rows[0][0] === "Completed") {
+    if (deleteStatus.includes("Cannot delete")) {
       return res.status(400).json({
         success: false,
-        message: "Cannot delete a completed concert",
+        message: deleteStatus,
       });
     }
 
-    // Delete concert
-    await connection.execute(
-      "DELETE FROM CONCERTS WHERE CONCERT_ID = :id",
-      [concertId],
-      { autoCommit: true }
-    );
+    if (deleteStatus.includes("Error:")) {
+      throw new Error(deleteStatus);
+    }
 
     res.json({
       success: true,
-      message: "Concert deleted successfully",
+      message: deleteStatus,
     });
   } catch (error) {
     console.error("Error:", error);
