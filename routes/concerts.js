@@ -545,51 +545,56 @@ router.get("/:id/summary", async (req, res) => {
     const concertId = req.params.id;
     connection = await connectToDB();
 
-    // Get concert details
+    // Call the procedure
     const result = await connection.execute(
-      `WITH TICKET_COUNT AS (
-          SELECT COUNT(*) as SOLD_COUNT
-          FROM TICKETS 
-          WHERE CONCERT_ID = :id 
-          AND STATUS = 'ACTIVE'
-      )
-      SELECT 
-          C.NAME,
-          TO_CHAR(C.CONCERT_DATE, 'YYYY-MM-DD') as CONCERT_DATE,
-          C.CONCERT_TIME,
-          C.PRICE,
-          C.TICKET_SALES_LIMIT,
-          T.SOLD_COUNT as TICKETS_SOLD,
-          (SELECT COUNT(*) FROM SPONSORSHIPS WHERE CONCERT_ID = C.CONCERT_ID) as SPONSOR_COUNT,
-          CALCULATE_CONCERT_REVENUE(C.CONCERT_ID) as TOTAL_REVENUE,
-          CASE WHEN T.SOLD_COUNT >= C.TICKET_SALES_LIMIT THEN 1 ELSE 0 END as IS_SOLD_OUT
-      FROM CONCERTS C
-      CROSS JOIN TICKET_COUNT T
-      WHERE C.CONCERT_ID = :id`,
-      { id: concertId }
+      `BEGIN
+                GET_CONCERT_SUMMARY(
+                    :id,
+                    :name,
+                    :date,
+                    :time,
+                    :price,
+                    :ticketLimit,
+                    :ticketsSold,
+                    :sponsorCount,
+                    :totalRevenue,
+                    :isSoldOut
+                );
+            END;`,
+      {
+        id: concertId,
+        name: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 100 },
+        date: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 10 },
+        time: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 8 },
+        price: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        ticketLimit: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        ticketsSold: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        sponsorCount: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        totalRevenue: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        isSoldOut: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+      }
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Concert not found" });
-    }
-
-    const row = result.rows[0];
     const summary = {
-      name: row[0],
-      date: row[1],
-      time: row[2],
-      currentPrice: row[3],
-      ticketLimit: row[4],
-      ticketsSold: row[5],
-      sponsorCount: row[6],
-      totalRevenue: row[7],
-      isSoldOut: row[8] === 1,
+      name: result.outBinds.name,
+      date: result.outBinds.date,
+      time: result.outBinds.time,
+      currentPrice: result.outBinds.price,
+      ticketLimit: result.outBinds.ticketLimit,
+      ticketsSold: result.outBinds.ticketsSold,
+      sponsorCount: result.outBinds.sponsorCount,
+      totalRevenue: result.outBinds.totalRevenue,
+      isSoldOut: result.outBinds.isSoldOut === 1,
     };
 
     res.json(summary);
   } catch (error) {
     console.error("Error:", error);
-    res.status(500).json({ message: "Failed to generate summary" });
+    if (error.errorNum === 20001) {
+      res.status(404).json({ message: "Concert not found" });
+    } else {
+      res.status(500).json({ message: "Failed to generate summary" });
+    }
   } finally {
     if (connection) {
       try {
